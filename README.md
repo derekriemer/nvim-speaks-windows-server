@@ -6,6 +6,10 @@ It reads the existing newline-delimited JSON protocol from stdin, speaks
 `speech.text`, and writes optional JSON status replies to stdout. Logs go to
 stderr so stdout remains protocol-safe.
 
+Named earcons are intentionally not advertised by this server unless real audio
+assets are added. The Neovim plugin keeps the spoken text in the same envelope,
+so unsupported earcons fall back to speech instead of hard-coded beep tables.
+
 ## Run
 
 ```powershell

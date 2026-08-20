@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use serde_json::json;
 
@@ -57,30 +57,6 @@ extern "system" {
     fn Beep(dw_freq: u32, dw_duration: u32) -> i32;
 }
 
-fn play_earcon(name: &str) {
-    if let Some(tones) = earcon_tone(name) {
-        for &(freq, duration) in tones {
-            play_beep(freq, duration);
-        }
-    }
-}
-
-fn earcon_tone(name: &str) -> Option<&'static [(u32, u32)]> {
-    match name {
-        "cap" => Some(&[(880, 60)]),
-        "cursor" => Some(&[(520, 25)]),
-        "boundary" => Some(&[(220, 100)]),
-        "completion_open" => Some(&[(600, 40)]),
-        "completion_accept" => Some(&[(700, 60)]),
-        "completion_dismiss" => Some(&[(300, 40)]),
-        "fold_closed" => Some(&[(392, 35), (415, 35), (440, 45)]),
-        "fold_open" => Some(&[(392, 35), (523, 40), (659, 55)]),
-        "fold_close" => Some(&[(659, 35), (523, 40), (392, 55)]),
-        "fold_none" => Some(&[(180, 45)]),
-        _ => None,
-    }
-}
-
 fn play_beep(freq: u32, duration: u32) {
     let _ = (freq, duration);
     #[cfg(windows)]
@@ -93,7 +69,6 @@ fn supported_commands(backend: &dyn SpeechBackend) -> Vec<&'static str> {
     let mut commands = vec!["text"];
     if cfg!(windows) {
         commands.push("beep");
-        commands.push("earcon");
     }
     if backend.supports_pitch() {
         commands.push("pitch");
@@ -102,18 +77,7 @@ fn supported_commands(backend: &dyn SpeechBackend) -> Vec<&'static str> {
 }
 
 fn supported_earcons() -> Vec<&'static str> {
-    vec![
-        "cap",
-        "cursor",
-        "boundary",
-        "completion_open",
-        "completion_accept",
-        "completion_dismiss",
-        "fold_closed",
-        "fold_open",
-        "fold_close",
-        "fold_none",
-    ]
+    Vec::new()
 }
 
 fn capabilities_json(backend: &dyn SpeechBackend) -> serde_json::Value {
@@ -192,11 +156,7 @@ fn execute_command(
                 play_beep(freq, duration);
             }
         }
-        "earcon" => {
-            if let Some(id) = command.id.as_deref() {
-                play_earcon(id);
-            }
-        }
+        "earcon" => {}
         _ => {}
     }
     Ok(false)
@@ -210,9 +170,6 @@ fn speak_envelope(
     let interrupt = speech.interrupt && !no_interrupt;
 
     if speech.sequence.is_empty() {
-        if let Some(ref earcon) = speech.earcon {
-            play_earcon(earcon);
-        }
         if !speech.text.is_empty() {
             backend.speak(&speech.text, interrupt, speech.pitch)?;
         }
@@ -461,7 +418,7 @@ fn select_backend(choice: BackendChoice, dll: Option<&PathBuf>) -> Result<Box<dy
 fn select_backend(choice: BackendChoice, _dll: Option<&PathBuf>) -> Result<Box<dyn SpeechBackend>> {
     match choice {
         BackendChoice::Auto | BackendChoice::Log => Ok(Box::new(LogBackend)),
-        BackendChoice::Nvda | BackendChoice::Sapi => Err(anyhow!(
+        BackendChoice::Nvda | BackendChoice::Sapi => Err(anyhow::anyhow!(
             "{choice:?} backend is only available on Windows; use --backend log on this platform"
         )),
     }
@@ -491,9 +448,13 @@ mod tests {
     }
 
     #[test]
-    fn non_windows_auto_selects_log_backend() {
+    fn auto_selects_available_backend() {
         let backend = select_backend(BackendChoice::Auto, None).unwrap();
-        assert_eq!(backend.name(), "log");
+        if cfg!(windows) {
+            assert!(matches!(backend.name(), "nvda" | "sapi" | "log"));
+        } else {
+            assert_eq!(backend.name(), "log");
+        }
     }
 
     #[test]
@@ -545,10 +506,32 @@ mod tests {
             .unwrap()
             .iter()
             .any(|cmd| cmd == "pitch"));
-        assert!(payload["earcons"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|id| id == "fold_open"));
+        assert!(payload["earcons"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unsupported_earcon_falls_back_to_text() {
+        let envelope: Envelope = serde_json::from_str(
+            r#"{
+              "seq": 1,
+              "speech": {
+                "text": "opened fold, 3 lines",
+                "interrupt": true,
+                "sequence": [
+                  {"cmd": "earcon", "id": "fold_open"},
+                  {"cmd": "text", "s": "opened fold, 3 lines"}
+                ]
+              }
+            }"#,
+        )
+        .unwrap();
+        let mut backend = RecordingBackend { calls: Vec::new() };
+
+        speak_envelope(&mut backend, &envelope.speech, false).unwrap();
+
+        assert_eq!(
+            backend.calls,
+            vec![("opened fold, 3 lines".to_string(), true, None)]
+        );
     }
 }

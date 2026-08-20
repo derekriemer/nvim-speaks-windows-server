@@ -28,6 +28,8 @@ pub struct SpeechCommand {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
+    pub blocking: Option<bool>,
+    #[serde(default)]
     pub hz: Option<f64>,
     #[serde(default)]
     pub ms: Option<f64>,
@@ -89,7 +91,7 @@ mod tests {
                 "text": "cap a",
                 "interrupt": true,
                 "sequence": [
-                  {"cmd": "earcon", "id": "cap"},
+                  {"cmd": "earcon", "id": "cap", "blocking": true},
                   {"cmd": "pitch", "multiplier": 1.5},
                   {"cmd": "text", "s": "cap a"},
                   {"cmd": "pitch", "multiplier": 1.0}
@@ -102,6 +104,7 @@ mod tests {
         assert_eq!(envelope.speech.sequence.len(), 4);
         assert_eq!(envelope.speech.sequence[0].cmd, "earcon");
         assert_eq!(envelope.speech.sequence[0].id.as_deref(), Some("cap"));
+        assert_eq!(envelope.speech.sequence[0].blocking, Some(true));
         assert_eq!(envelope.speech.sequence[1].multiplier, Some(1.5));
         assert_eq!(envelope.speech.sequence[2].s.as_deref(), Some("cap a"));
     }
